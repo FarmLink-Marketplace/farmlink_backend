@@ -8,3 +8,6 @@ env/
 *.swo
 *.bak
 *.pyc
+
+*migrations/
+.env
