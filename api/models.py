@@ -3,6 +3,7 @@ from django.db import models
 from .managers import CustomUserManager
 from cloudinary.models import CloudinaryField
 
+
 class User(AbstractUser):
     USER_TYPES = (
         ("farmer", "Farmer"),
@@ -168,3 +169,11 @@ class SubscriptionItem(models.Model):
 
     def __str__(self):
         return f"{self.quantity} x {self.product.name} in subscription {self.subscription.id}"
+
+
+class PasswordReset_keys(models.Model):
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="pwd_keys")
+    key = models.CharField(max_length=100)
+    exp = models.DateTimeField()
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)

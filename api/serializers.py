@@ -1,15 +1,37 @@
-from dj_rest_auth.registration.serializers import RegisterSerializer
 from rest_framework import serializers
+from django.contrib.auth import get_user_model
+from .models import Profile, User
 
 
-class CustomRegisterSerializer(RegisterSerializer):
-    first_name = serializers.CharField()
-    last_name = serializers.CharField()
-    phone_number = serializers.CharField()
-    user_type = serializers.CharField()
+class RegisterSerializer(serializers.ModelSerializer):
+    password = serializers.CharField(write_only=True, min_length=8)
+    confirm_password = serializers.CharField(write_only=True)
 
-    def get_cleaned_data(self):
-        data = super().get_cleaned_data()
-        data["first_name"] = self.validated_data.get("first_name", "")
-        data["last_name"] = self.validated_data.get("last_name", "")
+    class Meta:
+        model = User
+        fields = [
+            "first_name",
+            "last_name",
+            "email",
+            "phone_number",
+            "user_type",
+            "password",
+            "confirm_password",
+        ]
+
+    def validate(self, data):
+        if data["password"] != data["confirm_password"]:
+            raise serializers.ValidationError("Passwords do not match.")
         return data
+
+    def create(self, validated_data):
+        validated_data.pop("confirm_password")
+        user = User.objects.create_user(**validated_data)
+        Profile.objects.create(user=user)
+        return user
+
+
+class LoginSerializer(serializers.Serializer):
+    email = serializers.EmailField()
+    password = serializers.CharField(write_only=True)
+
