@@ -31,7 +31,7 @@ Farmlink is an agric e-commerce platform that connects Nigerian farmers and othe
 - Google Maps API for location
 
 ## API Documentation
-Access the API docs at: [](#)
+Access the API docs at: [SWAGGER API DOCS](https://farmlink-backend-11bw.onrender.com/swagger/)
 
 ## Getting Started (Local Setup)
 
