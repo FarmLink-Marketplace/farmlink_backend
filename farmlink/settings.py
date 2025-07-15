@@ -178,3 +178,5 @@ cloudinary.config(
     api_secret=os.environ["API_SECRET"],
     secure=True,
 )
+
+PAYSTACK_SECRET_KEY = os.environ["PAYSTACK_SECRET_KEY"]

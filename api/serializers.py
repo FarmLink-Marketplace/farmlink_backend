@@ -1,9 +1,9 @@
 from rest_framework import serializers
 from django.contrib.auth import get_user_model
-from .models import Profile, User
+from .models import Profile, User, Product, Order, UserKYC
 
 
-class RegisterSerializer(serializers.ModelSerializer):
+class UserSerializer(serializers.ModelSerializer):
     password = serializers.CharField(write_only=True, min_length=8)
     confirm_password = serializers.CharField(write_only=True)
 
@@ -35,3 +35,50 @@ class LoginSerializer(serializers.Serializer):
     email = serializers.EmailField()
     password = serializers.CharField(write_only=True)
 
+
+class ProfileSerializer(serializers.ModelSerializer):
+    user = UserSerializer(read_only=True)
+
+    class Meta:
+        model = Profile
+        fields = "__all__"
+        read_only_fields = ["user"]
+
+
+class ProductSerializer(serializers.ModelSerializer):
+    owner = UserSerializer(read_only=True)
+    image = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Product
+        fields = "__all__"
+        read_only_fields = ["owner", "is_approved"]
+
+    def get_image(self, obj):
+        request = self.context.get("request")
+        if obj.image and hasattr(obj.image, "url"):
+            if request is not None:
+                return request.build_absolute_uri(obj.image.url)
+            return obj.image.url
+        return None
+
+
+class OrderSerializer(serializers.ModelSerializer):
+    buyer = serializers.PrimaryKeyRelatedField(
+        queryset=User.objects.all(), required=False
+    )
+    logistics_partner = serializers.PrimaryKeyRelatedField(
+        queryset=User.objects.all(), allow_null=True, required=False
+    )
+
+    class Meta:
+        model = Order
+        fields = "__all__"
+        read_only_fields = ["buyer", "created_at"]
+
+
+class KYCSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = UserKYC
+        fields = "__all__"
+        read_only_fields = ["user", "is_verified", "submitted_at"]

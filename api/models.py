@@ -40,9 +40,11 @@ class Profile(models.Model):
 
 
 class UserKYC(models.Model):
-    user = models.ForeignKey(User, on_delete=models.CASCADE)
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="kyc")
     id_type = models.CharField(max_length=50)
-    status = models.CharField(max_length=20)
+    id_number = models.CharField(max_length=100)
+    is_verified = models.BooleanField(default=False)
+    submitted_at = models.DateTimeField(auto_now_add=True)
 
     def __str__(self):
         return f"KYC - {self.user.email}"
@@ -71,6 +73,7 @@ class Product(models.Model):
     owner = models.ForeignKey(User, on_delete=models.CASCADE)
     name = models.CharField(max_length=100)
     category = models.CharField(max_length=50)
+    description = models.CharField(max_length=3000)
     price = models.PositiveIntegerField()
     quantity = models.PositiveIntegerField()
     location = models.CharField(max_length=100)
@@ -97,6 +100,7 @@ class Order(models.Model):
     order_status = models.CharField(max_length=50)
     total_amount = models.PositiveIntegerField()
     created_at = models.DateTimeField(auto_now_add=True)
+    reference = models.CharField(max_length=100, unique=True, null=True, blank=True)
 
     def __str__(self):
         return f"Order {self.id} by {self.buyer.email if self.buyer else 'N/A'}"
@@ -177,3 +181,22 @@ class PasswordReset_keys(models.Model):
     exp = models.DateTimeField()
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
+
+
+class CartItem(models.Model):
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="cart_items")
+    product = models.ForeignKey(
+        Product, on_delete=models.CASCADE, related_name="cart_items"
+    )
+    quantity = models.PositiveIntegerField(default=1)
+    added_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        unique_together = ("user", "product")
+        ordering = ["-added_at"]
+
+    def __str__(self):
+        return f"{self.quantity} x {self.product.name} for {self.user.email}"
+
+    def get_total_price(self):
+        return self.product.price * self.quantity
