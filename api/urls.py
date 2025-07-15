@@ -33,4 +33,7 @@ urlpatterns = [
         views.verify_order_payment,
         name="verify-payment",
     ),
+    path("admin/users/", views.list_users),
+    path("admin/users/<int:id>/", views.get_user),
+    path("admin/users/<int:id>/delete/", views.delete_user),
 ]

@@ -18,6 +18,7 @@ import requests
 from .serializers import (
     ProductSerializer,
     ProfileSerializer,
+    ProfileUpdateSerializer,
     UserSerializer,
     LoginSerializer,
     OrderSerializer,
@@ -33,6 +34,7 @@ from .models import (
     Profile,
     User,
     CartItem,
+    UserKYC,
 )
 from farmlink import settings
 
@@ -97,7 +99,7 @@ def login(request):
             )
         else:
             return Response(
-                {"erro": "Invalid email or password"},
+                {"error": "Invalid email or password"},
                 status=status.HTTP_401_UNAUTHORIZED,
             )
     else:
@@ -388,9 +390,37 @@ def get_profile(request):
             type=openapi.TYPE_STRING,
             required=True,
         ),
+        openapi.Parameter(
+            name="first_name",
+            in_=openapi.IN_FORM,
+            type=openapi.TYPE_STRING,
+            required=False,
+            description="First name",
+        ),
+        openapi.Parameter(
+            name="last_name",
+            in_=openapi.IN_FORM,
+            type=openapi.TYPE_STRING,
+            required=False,
+            description="Last name",
+        ),
+        openapi.Parameter(
+            name="bio",
+            in_=openapi.IN_FORM,
+            type=openapi.TYPE_STRING,
+            required=False,
+            description="Bio description",
+        ),
+        openapi.Parameter(
+            name="pic",
+            in_=openapi.IN_FORM,
+            type=openapi.TYPE_FILE,
+            required=False,
+            description="Profile image",
+        ),
     ],
     tags=["profile"],
-    request_body=UserSerializer,
+    consumes=["multipart/form-data"],
     responses={
         200: openapi.Response(
             description="Profile updated successfully",
@@ -403,10 +433,11 @@ def get_profile(request):
     },
 )
 @api_view(["PUT"])
+@parser_classes([MultiPartParser, FormParser])
 @permission_classes([IsAuthenticated])
 def update_profile(request):
     profile = Profile.objects.get(user=request.user)
-    serializer = ProfileSerializer(profile, data=request.data, partial=True)
+    serializer = ProfileUpdateSerializer(profile, data=request.data, partial=True)
     if serializer.is_valid():
         serializer.save()
         return Response(serializer.data)
@@ -689,6 +720,15 @@ def delete_product(request, id):
     method="post",
     operation_summary="Add item to cart",
     operation_description="Adds a product to the authenticated user's cart.",
+    manual_parameters=[
+        openapi.Parameter(
+            name="Authorization",
+            in_=openapi.IN_HEADER,
+            description="Bearer {token}",
+            type=openapi.TYPE_STRING,
+            required=True,
+        ),
+    ],
     request_body=openapi.Schema(
         type=openapi.TYPE_OBJECT,
         required=["product_id", "quantity"],
@@ -705,14 +745,23 @@ def add_to_cart(request):
     product_id = request.data.get("product_id")
     quantity = request.data.get("quantity", 1)
 
-    product = get_object_or_404(Product, id=product_id)
+    if not product_id:
+        return Response({"detail": "Product ID is required."}, status=400)
 
-    cart, _ = CartItem.objects.get_or_create(user=request.user)
-    cart_item, created = CartItem.objects.get_or_create(cart=cart, product=product)
+    try:
+        product = Product.objects.get(id=product_id)
+    except Product.DoesNotExist:
+        return Response({"detail": "Product not found."}, status=404)
+
+    cart_item, created = CartItem.objects.get_or_create(
+        user=request.user, product=product
+    )
+
     if not created:
         cart_item.quantity += int(quantity)
     else:
         cart_item.quantity = int(quantity)
+
     cart_item.save()
 
     return Response({"detail": "Item added to cart successfully."}, status=201)
@@ -722,20 +771,28 @@ def add_to_cart(request):
     method="get",
     operation_summary="Get cart items",
     operation_description="Returns all items in the authenticated user's cart.",
-    responses={200: "List of cart items."},
+    manual_parameters=[
+        openapi.Parameter(
+            name="Authorization",
+            in_=openapi.IN_HEADER,
+            description="Bearer {token}",
+            type=openapi.TYPE_STRING,
+            required=True,
+        ),
+    ],
+    responses={200: "List of cart items.", 404: "Not found"},
 )
 @api_view(["GET"])
 @permission_classes([IsAuthenticated])
 def get_cart(request):
-    cart, _ = CartItem.objects.get_or_create(user=request.user)
-    items = cart.items.select_related("product")
+    items = CartItem.objects.filter(user=request.user).select_related("product")
     response = [
         {
             "product_id": item.product.id,
             "name": item.product.name,
             "price": item.product.price,
             "quantity": item.quantity,
-            "subtotal": item.product.price * item.quantity,
+            "subtotal": item.get_total_price(),
         }
         for item in items
     ]
@@ -796,6 +853,15 @@ def list_my_orders(request):
     method="post",
     operation_summary="Create order from cart",
     operation_description="Creates an order and order items from the user's cart, then clears the cart.",
+    manual_parameters=[
+        openapi.Parameter(
+            name="Authorization",
+            in_=openapi.IN_HEADER,
+            description="Bearer {access_token}",
+            type=openapi.TYPE_STRING,
+            required=True,
+        ),
+    ],
     responses={201: "Order created successfully."},
 )
 @api_view(["POST"])
@@ -936,7 +1002,7 @@ def update_order_status(request, id):
                 type=openapi.TYPE_STRING,
                 description="Type of ID document (e.g., 'national_id', 'passport')",
             ),
-            "id_type": openapi.Schema(
+            "id_number": openapi.Schema(
                 type=openapi.TYPE_NUMBER,
                 description="ID Number (e.g., 'NIN', 'Voter's card')",
             ),
@@ -955,10 +1021,19 @@ def submit_kyc(request):
     Submit KYC documents for verification.
     """
     try:
-        if hasattr(request.user, "kyc"):
+        try:
+            # Try to access user's existing KYC (if using OneToOneField)
+            existing_kyc = request.user.kyc
+            kyc_data = KYCSerializer(existing_kyc).data
             return Response(
-                {"detail": "KYC already submitted."}, status=status.HTTP_400_BAD_REQUEST
+                {
+                    "detail": "KYC already submitted.",
+                    "kyc_details": kyc_data,
+                },
+                status=status.HTTP_400_BAD_REQUEST,
             )
+        except UserKYC.DoesNotExist:
+            pass
 
         serializer = KYCSerializer(data=request.data)
         if serializer.is_valid():
@@ -1011,6 +1086,7 @@ def get_kyc_status(request):
         if not hasattr(request.user, "kyc"):
             return Response({"status": "not_submitted"}, status=status.HTTP_200_OK)
         kyc = request.user.kyc
+        print(kyc)
         return Response(
             {
                 "status": "verified" if kyc.is_verified else "pending",
@@ -1145,3 +1221,84 @@ def verify_order_payment(request, reference):
     return Response(
         {"error": "Verification failed or payment not successful."}, status=400
     )
+
+
+# Admin Processes
+
+
+@swagger_auto_schema(
+    method="get",
+    operation_summary="List Users (Admin)",
+    operation_description="Returns a list of all registered users. Admin only.",
+    manual_parameters=[
+        openapi.Parameter(
+            name="Authorization",
+            in_=openapi.IN_HEADER,
+            type=openapi.TYPE_STRING,
+            description="Bearer <token>",
+            required=True,
+        )
+    ],
+    tags=["admin"],
+    responses={200: UserSerializer(many=True)},
+)
+@api_view(["GET"])
+@permission_classes([IsAdminUser])
+def list_users(request):
+    users = User.objects.all().order_by("-date_joined")
+    serializer = UserSerializer(users, many=True)
+    return Response(serializer.data)
+
+
+@swagger_auto_schema(
+    method="get",
+    operation_summary="Retrieve User (Admin)",
+    operation_description="Retrieve details of a single user by ID. Admin only.",
+    manual_parameters=[
+        openapi.Parameter(
+            name="Authorization",
+            in_=openapi.IN_HEADER,
+            type=openapi.TYPE_STRING,
+            description="Bearer <token>",
+            required=True,
+        )
+    ],
+    tags=["admin"],
+    responses={200: UserSerializer()},
+)
+@api_view(["GET"])
+@permission_classes([IsAdminUser])
+def get_user(request, id):
+    try:
+        user = User.objects.get(id=id)
+        serializer = UserSerializer(user)
+        return Response(serializer.data)
+    except User.DoesNotExist:
+        return Response({"detail": "User not found."}, status=404)
+
+
+@swagger_auto_schema(
+    method="delete",
+    operation_summary="Delete User (Admin)",
+    operation_description="Permanently delete a user. Admin only.",
+    manual_parameters=[
+        openapi.Parameter(
+            name="Authorization",
+            in_=openapi.IN_HEADER,
+            type=openapi.TYPE_STRING,
+            description="Bearer <token>",
+            required=True,
+        )
+    ],
+    tags=["admin"],
+    responses={204: "User deleted successfully"},
+)
+@api_view(["DELETE"])
+@permission_classes([IsAdminUser])
+def delete_user(request, id):
+    try:
+        user = User.objects.get(id=id)
+        user.delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)
+    except User.DoesNotExist:
+        return Response({"detail": "User not found."}, status=404)

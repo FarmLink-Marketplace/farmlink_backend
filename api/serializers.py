@@ -1,6 +1,6 @@
 from rest_framework import serializers
 from django.contrib.auth import get_user_model
-from .models import Profile, User, Product, Order, UserKYC
+from .models import Profile, User, Product, Order, UserKYC, CartItem
 
 
 class UserSerializer(serializers.ModelSerializer):
@@ -38,11 +38,51 @@ class LoginSerializer(serializers.Serializer):
 
 class ProfileSerializer(serializers.ModelSerializer):
     user = UserSerializer(read_only=True)
+    pic = serializers.SerializerMethodField()
 
     class Meta:
         model = Profile
         fields = "__all__"
         read_only_fields = ["user"]
+
+    def get_pic(self, obj):
+        request = self.context.get("request")
+        if obj.pic and hasattr(obj.pic, "url"):
+            if request is not None:
+                return request.build_absolute_uri(obj.pic.url)
+            return obj.pic.url
+        return None
+
+
+class ProfileUpdateSerializer(serializers.ModelSerializer):
+    first_name = serializers.CharField(source="user.first_name", required=False)
+    last_name = serializers.CharField(source="user.last_name", required=False)
+    phone_number = serializers.CharField(source="user.phone_number", required=False)
+    pic = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Profile
+        fields = ["bio", "pic", "first_name", "last_name", "phone_number"]
+
+    def update(self, instance, validated_data):
+        user_data = validated_data.pop("user", {})
+        for attr, value in user_data.items():
+            setattr(instance.user, attr, value)
+        instance.user.save()
+
+        for attr, value in validated_data.items():
+            setattr(instance, attr, value)
+        instance.save()
+
+        return instance
+
+    def get_pic(self, obj):
+        request = self.context.get("request")
+        if obj.pic and hasattr(obj.pic, "url"):
+            if request is not None:
+                return request.build_absolute_uri(obj.pic.url)
+            return obj.pic.url
+        return None
 
 
 class ProductSerializer(serializers.ModelSerializer):
@@ -82,3 +122,9 @@ class KYCSerializer(serializers.ModelSerializer):
         model = UserKYC
         fields = "__all__"
         read_only_fields = ["user", "is_verified", "submitted_at"]
+
+
+class CartItemSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = CartItem
+        fields = ["id", "product", "quantity"]
